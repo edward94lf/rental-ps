@@ -1,71 +1,66 @@
 <?php
 /**
- * RENTAL FADJAR - VERSI EKSPRES
+ * RENTAL FADJAR - VERSI SINKRON WAKTU SINGAPORE
  */
 
-// 1. DATA RESMI (PASTIKAN DIAMBIL ULANG DARI WEB TUYA)
 $accessId  = "wrhk7mwuy98hgcvyhgds"; 
 $secretKey = "af864af877d349bf886e8397eff27b59";
 $deviceId  = "a3c8e608901a306ff7ytyk";
 $baseUrl   = "https://tuyasg.com"; 
 
-$pesan = "Siap...";
+function panggil_tuya($url, $method, $body = "", $token = "") {
+    global $accessId, $secretKey, $baseUrl;
 
-if (isset($_GET['aksi'])) {
-    $nyala = ($_GET['aksi'] == 'on') ? true : false;
-    date_default_timezone_set('Asia/Jakarta');
+    // --- JURUS SAKTI: MINTA JAM KE SERVER SINGAPORE DULU ---
+    $chTime = curl_init($baseUrl . "/v1.0/statistics/time");
+    curl_setopt($chTime, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($chTime, CURLOPT_SSL_VERIFYPEER, false);
+    $resTime = curl_exec($chTime);
+    $timeData = json_decode($resTime, true);
+    curl_close($chTime);
     
-    // Pakai waktu server sekarang dalam milidetik
-    $t = round(microtime(true) * 1000);
-    
-    // --- LANGKAH 1: AMBIL TOKEN ---
-    $urlToken = "/v1.0/token?grant_type=1";
-    $signToken = strtoupper(hash_hmac("sha256", $accessId . $t . "GET\n" . hash("sha256", "") . "\n\n" . $urlToken, $secretKey));
+    // Pakai jam dari Tuya langsung!
+    $t = isset($timeData['result']) ? $timeData['result'] : round(microtime(true) * 1000);
+    // ------------------------------------------------------
 
-    $ch = curl_init($baseUrl . $urlToken);
+    $contentHash = hash("sha256", $body);
+    $stringToSign = $accessId . $token . $t . $method . "\n" . $contentHash . "\n\n" . $url;
+    $sign = strtoupper(hash_hmac("sha256", $stringToSign, $secretKey));
+
+    $ch = curl_init($baseUrl . $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+    if ($body) curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "client_id: $accessId",
-        "sign: $signToken",
-        "t: $t",
-        "sign_method: HMAC-SHA256"
+        "client_id: $accessId", "sign: $sign", "t: $t",
+        "sign_method: HMAC-SHA256", "access_token: $token", "Content-Type: application/json"
     ]);
-    $resToken = json_decode(curl_exec($ch), true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    $res = curl_exec($ch);
     curl_close($ch);
+    return json_decode($res, true);
+}
 
+$pesan = "Siap...";
+if (isset($_GET['aksi'])) {
+    // 1. MINTA TOKEN (KUNCI)
+    $resToken = panggil_tuya("/v1.0/token?grant_type=1", "GET");
     if (isset($resToken['result']['access_token'])) {
         $token = $resToken['result']['access_token'];
         
-        // --- LANGKAH 2: KIRIM COMMAND ---
-        $urlCmd = "/v1.0/devices/$deviceId/commands";
+        // 2. MATIIN TV (PAKE KUNCI)
+        $nyala = ($_GET['aksi'] == 'on') ? true : false;
         $body = json_encode(["commands" => [["code" => "switch", "value" => $nyala]]]);
-        $signCmd = strtoupper(hash_hmac("sha256", $accessId . $token . $t . "POST\n" . hash("sha256", $body) . "\n\n" . $urlCmd, $secretKey));
-
-        $ch = curl_init($baseUrl . $urlCmd);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            "client_id: $accessId",
-            "access_token: $token",
-            "sign: $signCmd",
-            "t: $t",
-            "sign_method: HMAC-SHA256",
-            "Content-Type: application/json"
-        ]);
-        $resCmd = json_decode(curl_exec($ch), true);
-        curl_close($ch);
-
+        $resCmd = panggil_tuya("/v1.0/devices/$deviceId/commands", "POST", $body, $token);
+        
         if (isset($resCmd['success']) && $resCmd['success']) {
             $pesan = "CEKLEK! BERHASIL DI" . strtoupper($_GET['aksi']);
         } else {
-            $msg = $resCmd['msg'] ?? "Ditolak Singapore";
-            $pesan = "PERINTAH GAGAL: $msg";
+            $pesan = "GAGAL PERINTAH: " . ($resCmd['msg'] ?? "Ditolak");
         }
     } else {
-        $msgToken = $resToken['msg'] ?? "Koneksi ke Singapore Macet";
-        $pesan = "TOKEN GAGAL: $msgToken";
+        $msgToken = isset($resToken['msg']) ? $resToken['msg'] : "Waktu Gak Cocok";
+        $pesan = "TOKEN GAGAL: " . $msgToken;
     }
 }
 ?>
@@ -77,7 +72,7 @@ if (isset($_GET['aksi'])) {
     <title>BILLING CLOUD FADJAR</title>
     <style>
         body { font-family: sans-serif; text-align: center; background: #121212; color: #fff; padding: 20px; }
-        .card { background: #1e1e1e; padding: 30px; border-radius: 20px; display: inline-block; border: 1px solid #333; }
+        .card { background: #1e1e1e; padding: 30px; border-radius: 20px; display: inline-block; border: 2px solid #333; }
         .btn { padding: 25px; font-size: 24px; margin: 15px 0; width: 280px; border-radius: 15px; border: none; font-weight: bold; cursor: pointer; display: block; text-decoration: none; color: white; }
         .on { background: #2ecc71; }
         .off { background: #e74c3c; }
