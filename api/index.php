@@ -3,7 +3,8 @@
 $accessId  = "wrhk7mwuy98hgcvyhgds"; 
 $secretKey = "af864af877d349bf886e8397eff27b59";
 $deviceId  = "a3c8e608901a306ff7ytyk";
-$baseUrl   = "https://tuyasg.com"; 
+// Ganti baris $baseUrl di index.php jadi ini Bang:
+$baseUrl = "https://tuyaus.com"; 
 
 function panggil_tuya($url, $method, $body = "", $token = "") {
     global $accessId, $secretKey, $baseUrl;
