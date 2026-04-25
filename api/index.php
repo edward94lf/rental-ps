@@ -1,62 +1,65 @@
 <?php
-/**
- * RENTAL FADJAR - VERSI SKAKMAT BYPASS
- */
-
+// 1. DATA RESMI (PASTIKAN DIAMBIL DARI WEB TUYA)
 $accessId  = "wrhk7mwuy98hgcvyhgds"; 
 $secretKey = "af864af877d349bf886e8397eff27b59";
 $deviceId  = "a3c8e608901a306ff7ytyk";
 $baseUrl   = "https://tuyasg.com"; 
 
-function panggil_tuya_sakti($url, $method, $body = "", $token = "") {
-    global $accessId, $secretKey, $baseUrl;
-    $t = round(microtime(true) * 1000);
-    $contentHash = hash("sha256", $body);
-    $stringToSign = $accessId . $token . $t . $method . "\n" . $contentHash . "\n\n" . $url;
-    $sign = strtoupper(hash_hmac("sha256", $stringToSign, $secretKey));
-
-    $ch = curl_init($baseUrl . $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
-    if ($body) curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
-    
-    // --- JURUS ANTI MACET ---
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // Abaikan sertifikat SSL
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false); // Abaikan kecocokan host
-    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4); // Paksa IPv4
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-    // ------------------------
-
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "client_id: $accessId", "sign: $sign", "t: $t",
-        "sign_method: HMAC-SHA256", "access_token: $token", "Content-Type: application/json"
-    ]);
-
-    $res = curl_exec($ch);
-    $err = curl_error($ch);
-    curl_close($ch);
-    return $res ? json_decode($res, true) : ["msg" => "Koneksi Macet: $err"];
-}
-
 $pesan = "Siap...";
+
 if (isset($_GET['aksi'])) {
-    // 1. AMBIL TOKEN
-    $resToken = panggil_tuya_sakti("/v1.0/token?grant_type=1", "GET");
+    $nyala = ($_GET['aksi'] == 'on') ? true : false;
+    date_default_timezone_set('Asia/Jakarta');
+    $t = round(microtime(true) * 1000);
+    
+    // --- LANGKAH 1: MINTA TOKEN ---
+    $urlToken = "/v1.0/token?grant_type=1";
+    // Rumus Sign Token: AccessID + Waktu + Method + HashBody(kosong) + Header(kosong) + URL
+    $signToken = strtoupper(hash_hmac("sha256", $accessId . $t . "GET\n" . hash("sha256", "") . "\n\n" . $urlToken, $secretKey));
+
+    $ch = curl_init($baseUrl . $urlToken);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        "client_id: $accessId",
+        "sign: $signToken",
+        "t: $t",
+        "sign_method: HMAC-SHA256"
+    ]);
+    $resToken = json_decode(curl_exec($ch), true);
+    curl_close($ch);
+
     if (isset($resToken['result']['access_token'])) {
         $token = $resToken['result']['access_token'];
         
-        // 2. KIRIM COMMAND (Switch untuk kategori tdq)
-        $nyala = ($_GET['aksi'] == 'on') ? true : false;
+        // --- LANGKAH 2: KIRIM COMMAND ---
+        $urlCmd = "/v1.0/devices/$deviceId/commands";
         $body = json_encode(["commands" => [["code" => "switch", "value" => $nyala]]]);
-        $resCmd = panggil_tuya_sakti("/v1.0/devices/$deviceId/commands", "POST", $body, $token);
-        
+        // Rumus Sign Command: AccessID + Token + Waktu + Method + HashBody + Header(kosong) + URL
+        $signCmd = strtoupper(hash_hmac("sha256", $accessId . $token . $t . "POST\n" . hash("sha256", $body) . "\n\n" . $urlCmd, $secretKey));
+
+        $ch = curl_init($baseUrl . $urlCmd);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "client_id: $accessId",
+            "access_token: $token",
+            "sign: $signCmd",
+            "t: $t",
+            "sign_method: HMAC-SHA256",
+            "Content-Type: application/json"
+        ]);
+        $resCmd = json_decode(curl_exec($ch), true);
+        curl_close($ch);
+
         if (isset($resCmd['success']) && $resCmd['success']) {
-            $pesan = "CEKLEK! BERHASIL DI" . strtoupper($_GET['aksi']);
+            $pesan = "CEKLEK! BERHASIL " . strtoupper($_GET['aksi']);
         } else {
-            $pesan = "GAGAL COMMAND: " . ($resCmd['msg'] ?? "Ditolak");
+            $pesan = "GAGAL PERINTAH: " . ($resCmd['msg'] ?? "Ditolak");
         }
     } else {
-        $pesan = "GAGAL TOKEN: " . ($resToken['msg'] ?? "Server Singapore Gak Nyaut");
+        $pesan = "TOKEN MASIH GAGAL: " . ($resToken['msg'] ?? "Data Salah");
     }
 }
 ?>
@@ -65,20 +68,21 @@ if (isset($_GET['aksi'])) {
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BILLING CLOUD FADJAR</title>
+    <title>REMOTE RENTAL FADJAR</title>
     <style>
         body { font-family: sans-serif; text-align: center; background: #121212; color: #fff; padding: 20px; }
-        .card { background: #1e1e1e; padding: 30px; border-radius: 20px; display: inline-block; border: 2px solid #333; }
-        .btn { padding: 25px; font-size: 24px; margin: 15px 0; width: 280px; border-radius: 15px; border: none; font-weight: bold; cursor: pointer; display: block; text-decoration: none; color: white; }
+        .card { background: #1e1e1e; padding: 30px; border-radius: 15px; display: inline-block; border: 1px solid #333; }
+        .btn { padding: 25px; font-size: 24px; margin: 10px; width: 100%; border-radius: 12px; border: none; font-weight: bold; cursor: pointer; color: white; display: block; text-decoration: none; }
         .on { background: #2ecc71; } .off { background: #e74c3c; }
-        .status { margin-top: 20px; color: #00ff00; font-weight: bold; font-family: monospace; }
+        .status { margin-top: 20px; color: #00ff00; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h2>REMOTE CLOUD VERCEL</h2>
-        <a href="?aksi=on" class="btn on">ON</a>
-        <a href="?aksi=off" class="btn off">OFF</a>
+        <h2>REMOTE PS 1</h2>
+        <a href="?aksi=on" class="btn on">ON (NYALAKAN)</a>
+        <br>
+        <a href="?aksi=off" class="btn off">OFF (MATIKAN)</a>
         <div class="status"><?php echo $pesan; ?></div>
     </div>
 </body>
