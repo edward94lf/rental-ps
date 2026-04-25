@@ -4,55 +4,49 @@ $secretKey = "af864af877d349bf886e8397eff27b59";
 $deviceId  = "a3c8e608901a306ff7ytyk";
 $baseUrl   = "https://tuyasg.com"; 
 
-function panggil_tuya($url, $method, $body = "", $token = "") {
-    global $accessId, $secretKey, $baseUrl;
-    
-    // AMBIL WAKTU SERVER TUYA BIAR GAK ERROR (SINKRONISASI)
-    $resTime = @file_get_contents("$baseUrl/v1.0/statistics/time");
-    $timeData = json_decode($resTime, true);
-    $t = isset($timeData['result']) ? $timeData['result'] : round(microtime(true) * 1000);
+$pesan = "Siap...";
+
+if (isset($_GET['aksi'])) {
+    $nyala = ($_GET['aksi'] == 'on') ? true : false;
+    date_default_timezone_set('Asia/Jakarta');
+    $t = round(microtime(true) * 1000);
+    $url = "/v1.0/devices/$deviceId/commands";
+
+    // Kita kirim switch dan switch_1 sekaligus biar gak meleset
+    $body = json_encode(["commands" => [
+        ["code" => "switch", "value" => $nyala],
+        ["code" => "switch_1", "value" => $nyala]
+    ]]);
     
     $contentHash = hash("sha256", $body);
-    $stringToSign = $accessId . $token . $t . $method . "\n" . $contentHash . "\n\n" . $url;
+    // Rumus Sign Tanpa Token (Jalur Ekspres)
+    $stringToSign = $accessId . $t . "POST\n" . $contentHash . "\n\n" . $url;
     $sign = strtoupper(hash_hmac("sha256", $stringToSign, $secretKey));
 
     $ch = curl_init($baseUrl . $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
-    if ($body) curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "client_id: $accessId", "sign: $sign", "t: $t",
-        "sign_method: HMAC-SHA256", "access_token: $token", "Content-Type: application/json"
+        "client_id: $accessId",
+        "sign: $sign",
+        "t: $t",
+        "sign_method: HMAC-SHA256",
+        "Content-Type: application/json"
     ]);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    $res = curl_exec($ch);
+    
+    $result = curl_exec($ch);
+    $resArr = json_decode($result, true);
     curl_close($ch);
-    return json_decode($res, true);
-}
 
-$pesan = "Siap...";
-if (isset($_GET['aksi'])) {
-    // 1. MINTA TOKEN
-    $resToken = panggil_tuya("/v1.0/token?grant_type=1", "GET");
-    if (isset($resToken['result']['access_token'])) {
-        $token = $resToken['result']['access_token'];
-        
-        // 2. KIRIM PERINTAH (Tembak switch & switch_1 biar pasti kena)
-        $nyala = ($_GET['aksi'] == 'on') ? true : false;
-        $body = json_encode(["commands" => [
-            ["code" => "switch", "value" => $nyala],
-            ["code" => "switch_1", "value" => $nyala]
-        ]]);
-        $resCmd = panggil_tuya("/v1.0/devices/$deviceId/commands", "POST", $body, $token);
-        
-        if (isset($resCmd['success']) && $resCmd['success']) {
-            $pesan = "CEKLEK! BERHASIL " . strtoupper($_GET['aksi']);
-        } else {
-            $pesan = "GAGAL PERINTAH: " . ($resCmd['msg'] ?? "Ditolak");
-        }
+    if (isset($resArr['success']) && $resArr['success']) {
+        $pesan = "CEKLEK! BERHASIL " . strtoupper($_GET['aksi']);
     } else {
-        $errorMsg = isset($resToken['msg']) ? $resToken['msg'] : "Server Macet";
-        $pesan = "GAGAL AMBIL KUNCI: " . $errorMsg;
+        // Tampilkan pesan asli biar kita tau salahnya dimana
+        $msg = isset($resArr['msg']) ? $resArr['msg'] : "Gagal Total";
+        $code = isset($resArr['code']) ? $resArr['code'] : "??";
+        $pesan = "ERROR: $msg ($code)";
     }
 }
 ?>
@@ -64,17 +58,17 @@ if (isset($_GET['aksi'])) {
     <title>BILLING PS FADJAR</title>
     <style>
         body { font-family: sans-serif; text-align: center; background: #000; color: #fff; padding: 20px; }
-        .card { background: #111; padding: 30px; border-radius: 20px; display: inline-block; border: 1px solid #333; }
-        .btn { padding: 25px; font-size: 24px; margin: 15px 0; width: 280px; border-radius: 15px; border: none; font-weight: bold; cursor: pointer; display: block; text-decoration: none; color: white; }
+        .card { border: 2px solid #333; padding: 30px; border-radius: 20px; display: inline-block; background: #111; }
+        .btn { padding: 25px; font-size: 22px; margin: 10px; width: 250px; border-radius: 12px; border: none; font-weight: bold; cursor: pointer; display: block; text-decoration: none; color: white; }
         .on { background: #2ecc71; } .off { background: #e74c3c; }
-        .status { margin-top: 20px; color: #00ff00; font-family: monospace; }
+        .status { margin-top: 20px; color: #00ff00; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="card">
-        <h2>REMOTE CLOUD VERCEL</h2>
-        <a href="?aksi=on" class="btn on">NYALAKAN (ON)</a>
-        <a href="?aksi=off" class="btn off">MATIKAN (OFF)</a>
+        <h2>REMOTE VERCEL V5</h2>
+        <a href="?aksi=on" class="btn on">ON</a>
+        <a href="?aksi=off" class="btn off">OFF</a>
         <div class="status"><?php echo $pesan; ?></div>
     </div>
 </body>
